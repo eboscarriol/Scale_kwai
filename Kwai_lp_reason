@@ -1,0 +1,54 @@
+#library(googlesheets)
+library(XML)
+library(httr)
+library(jsonlite)
+#library(RPostgreSQL)
+#library(RPostgres)
+library(googlesheets4)
+library(stringr)
+library(dplyr)
+library(tidyverse)
+library(DBI)
+library(odbc)
+
+# Conexão Snowflake
+con <- dbConnect(odbc::odbc(),
+                 Driver   = "SnowflakeDSIIDriver",   # depende do driver instalado
+                 Server   = "FRTUKBM-ENOVA.snowflakecomputing.com", # URL da sua instância
+                 UID      = "eboscarriol",
+                 authenticator = "externalbrowser",
+                 Database = "EIS_REPORTING_SF",
+                 Schema   = "PUBLIC",   # ajuste conforme necessário
+                 Warehouse= "REPORTING_WH", # ajuste conforme seu ambiente
+                 Role     = "EBOSCARRIOL_ROLE"   # opcional, depende da config do seu user
+)
+
+# Testar query
+dbGetQuery(con, "SELECT CURRENT_TIMESTAMP;")
+
+qry <-"select *,
+       hr.RESPONSE:ComputedVariableResultRules:decision_reason as lp_reason
+from EIS_REPORTING_SF.NBOX_SIMPLIC_SOROCRED.brazil_app_information bai
+left join SIMPLIC_PORTFOLIO_PROD.SIMPLIC_PORTFOLIO.equation_results er
+    on bai.underwriting_decision_id = er.underwriting_decision_id
+   and er.equation_id = 101
+   and er.created_at >= '2026-04-20'
+left join HELIOS_PROD.HELIOS.results hr
+    on er.helios_calculation_id = hr.UUID
+   and hr.created_at >= '2026-04-20'
+where bai.loan_application_date >= '2026-04-20'
+and bai.source ilike '%kwai_simplified_partners%'
+
+#ebs_auto <-dbGetQuery(brcon,qry)
+ebs_auto <- dbGetQuery(con, qry)
+
+
+gs4_auth(email = "eboscarriol@enova.com")
+
+ebs_auto %>%
+  write_sheet(
+    ss = gs4_get(
+      "https://docs.google.com/spreadsheets/d/1i-hZfsFHPYewUeiqgwoJNpCU5KFnt5RAWwlhoPbM0bk/edit?gid=1047929131#gid=1047929131"),
+    sheet = "Base_LP_reason"
+    
+  )
