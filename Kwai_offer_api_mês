@@ -1,0 +1,61 @@
+#library(googlesheets)
+library(XML)
+library(httr)
+library(jsonlite)
+#library(RPostgreSQL)
+#library(RPostgres)
+library(googlesheets4)
+library(stringr)
+library(dplyr)
+library(tidyverse)
+library(DBI)
+library(odbc)
+
+# Conexão Snowflake
+con <- dbConnect(odbc::odbc(),
+                 Driver   = "SnowflakeDSIIDriver",   # depende do driver instalado
+                 Server   = "FRTUKBM-ENOVA.snowflakecomputing.com", # URL da sua instância
+                 UID      = "eboscarriol",
+                 authenticator = "externalbrowser",
+                 Database = "EIS_REPORTING_SF",
+                 Schema   = "PUBLIC",   # ajuste conforme necessário
+                 Warehouse= "REPORTING_WH", # ajuste conforme seu ambiente
+                 Role     = "EBOSCARRIOL_ROLE"   # opcional, depende da config do seu user
+)
+
+# Testar query
+dbGetQuery(con, "SELECT CURRENT_TIMESTAMP;")
+
+qry <-"select
+    date_trunc('day', rq.created_at)::date as call_created_date,
+    pr.name,
+    get(parse_json(rs.body), 'decision')::string as decision,
+    get(rq.body, 'bank_name')::string as bank_name,
+    count(distinct rq.request_id) as volume
+from LEADS_PROD.LEADS.REQUESTS rq
+left join LEADS_PROD.LEADS.RESPONSES rs using (request_id)
+left join LEADS_PROD.LEADS.PROVIDERS pr using (provider_id)
+where 1=1
+    and pr.buyer_id = 4
+    and rq.created_at >= '2025-01-01'
+   and (
+    pr.name ilike '%kwai%'
+    or pr.name ilike '%finanzero%'
+)
+group by 1,2,3,4
+order by call_created_date desc;"
+
+
+#ebs_auto <-dbGetQuery(brcon,qry)
+ebs_auto <- dbGetQuery(con, qry)
+
+
+gs4_auth(email = "eboscarriol@enova.com")
+
+ebs_auto %>%
+  write_sheet(
+    ss = gs4_get(
+      "https://docs.google.com/spreadsheets/d/1i-hZfsFHPYewUeiqgwoJNpCU5KFnt5RAWwlhoPbM0bk/edit?gid=1047929131#gid=1047929131"),
+    sheet = "base_offer_mês"
+    
+  )
