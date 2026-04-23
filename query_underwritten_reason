@@ -1,0 +1,22 @@
+select
+    to_char(bai_info.loan_application_date,'YYYY-MM') as yearmonth,
+    bai_info.source,
+    bai_info.underwriting_decision_reason,
+    case
+        when bai_info.credit_model_version ilike '%new_v%'
+          or bai_info.underwriting_decision_reason ilike '%prefilter_decline%'
+        then 1
+        else 0
+    end as underwritten,
+    count(1) as qtd
+from nbox_simplic_sorocred.brazil_app_information bai_info
+left join SIMPLIC_PORTFOLIO.loan_applications la
+    on bai_info.loan_application_id = la.loan_application_id
+where 1=1
+  and bai_info.customer_type = 'New'
+  and bai_info.loan_application_date >= '2025-03-01'
+  and la.loan_application_status_id != 19
+and (
+    bai_info.source ilike '%kwai%'
+    or bai_info.source ilike '%finanzero%'
+)group by 1,2,3,4
