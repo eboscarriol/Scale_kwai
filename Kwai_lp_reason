@@ -1,3 +1,5 @@
+--- query com muitas linhas, rodar só 1-2 dias
+
 #library(googlesheets)
 library(XML)
 library(httr)
