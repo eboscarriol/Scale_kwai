@@ -1,0 +1,84 @@
+#atualizar linha 78 com seu email , atualizar linha 48 em diante com sources
+#esse arquivo atualiza os emprestimos de Leads no arquivo google sheet CPF | Issued | Invoices - Simplic, para calcular comissao dos Leads
+
+
+#library(googlesheets)
+library(XML)
+library(httr)
+library(jsonlite)
+library(RPostgreSQL)
+library(RPostgres)
+library(googlesheets4)
+library(stringr)
+library(dplyr)
+library(tidyverse)
+
+drv = dbDriver("PostgreSQL")
+
+brcon = RPostgreSQL::dbConnect(  drv
+                                 , user = "simplic_nhu"
+                                 , password = "Cnuacspassword123"
+                                 , dbname = "staging"
+                                 , host = "eis-reporting-masterdb.enova.com"
+                                 , port = "5432")
+
+qry <-"with contract_sign as
+(
+    select distinct
+        request_body::json ->> 'cpf' as cpf,
+        created_at::date as created_at_cs,
+        response_body,
+        response_body::json ->> 'status' as contract_sign_status,
+        request_body,
+        request_body::json ->> 'bank_name' as bank_name,
+        request_body::json ->> 'caixa_account_type' as caixa_account_type,
+        request_body::json ->> 'bank_account_type' as bank_account_type,
+        request_body::json ->> 'bank_account_number' as bank_account_number,
+        request_body::json ->> 'bank_branch' as bank_branch
+    from simplic_partners.communications
+    where request_type = 'contract_sign'
+      and created_at >= '2026-01-01'
+),
+
+funnel as
+(
+    select
+        source,
+        cs.*
+    from contract_sign cs
+    left join identity.government_identifiers gi
+        on cs.cpf = gi.identifier
+       and gi.government_identifier_type_id = 5
+    left join simplic_portfolio.loan_applications la
+        on la.loan_application_id =
+        (
+            select loan_application_id
+            from simplic_portfolio.loan_applications pla
+            where pla.brand_id = 6
+              and pla.account_id = gi.account_id
+              and pla.created_at between cs.created_at_cs - 4 and cs.created_at_cs + 1
+            order by loan_application_id desc
+            limit 1
+        )
+    left join simplic_portfolio.sources s
+        on la.source_id = s.source_id
+   where source ilike '%kwai%'
+   or source ilike '%finanzero%'
+)
+
+select *
+from funnel
+order by source, cpf, created_at_cs;"
+
+
+ebs_auto <-dbGetQuery(brcon,qry)
+
+
+gs4_auth(email = "eboscarriol@enova.com")
+
+ebs_auto %>%
+  write_sheet(
+    ss = gs4_get(
+      "https://docs.google.com/spreadsheets/d/1i-hZfsFHPYewUeiqgwoJNpCU5KFnt5RAWwlhoPbM0bk/edit?gid=574305830#gid=574305830"),
+    sheet = "Base_contract"
+  )
